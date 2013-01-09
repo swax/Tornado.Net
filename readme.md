@@ -11,3 +11,7 @@ This port was made for a few reasons.
 3. IronPython does not create code that is easily linked to by other .Net projects.
 4. I have a program called [Code Perspective](https://www.codeperspective.com) that let's me visually inspect the state of a .Net app running on a remote server - I'd like to use this app to explore Tornado's architecture.
 5. The .Net community could benefit from an easy to use event based server on windows and linux.
+
+## Status
+
+Most of the backend httpserver, iostream, and ioloop is working. Currently the web framework is being ported so connections are routed properly.
