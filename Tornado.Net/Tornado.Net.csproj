@@ -1,0 +1,128 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProductVersion>8.0.30703</ProductVersion>
+    <SchemaVersion>2.0</SchemaVersion>
+    <ProjectGuid>{3815FDE5-ED72-443B-B918-7EE11810FC23}</ProjectGuid>
+    <OutputType>Library</OutputType>
+    <AppDesignerFolder>Properties</AppDesignerFolder>
+    <RootNamespace>Tornado.Net</RootNamespace>
+    <AssemblyName>Tornado.Net</AssemblyName>
+    <TargetFrameworkVersion>v4.0</TargetFrameworkVersion>
+    <FileAlignment>512</FileAlignment>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>bin\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\Release\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Xml.Linq" />
+    <Reference Include="System.Data.DataSetExtensions" />
+    <Reference Include="Microsoft.CSharp" />
+    <Reference Include="System.Data" />
+    <Reference Include="System.Xml" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="extensions.cs" />
+    <Compile Include="httpserver.cs" />
+    <Compile Include="httputil.cs" />
+    <Compile Include="ioloop.cs" />
+    <Compile Include="iostream.cs" />
+    <Compile Include="netutil.cs" />
+    <Compile Include="web.cs" />
+    <Compile Include="Properties\AssemblyInfo.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="tornado 2.4.1\auth.py" />
+    <Content Include="tornado 2.4.1\autoreload.py" />
+    <Content Include="tornado 2.4.1\curl_httpclient.py" />
+    <Content Include="tornado 2.4.1\database.py" />
+    <Content Include="tornado 2.4.1\epoll.c" />
+    <Content Include="tornado 2.4.1\escape.py" />
+    <Content Include="tornado 2.4.1\gen.py" />
+    <Content Include="tornado 2.4.1\httpclient.py" />
+    <Content Include="tornado 2.4.1\httpserver.py" />
+    <Content Include="tornado 2.4.1\httputil.py" />
+    <Content Include="tornado 2.4.1\ioloop.py" />
+    <Content Include="tornado 2.4.1\iostream.py" />
+    <Content Include="tornado 2.4.1\locale.py" />
+    <Content Include="tornado 2.4.1\netutil.py" />
+    <Content Include="tornado 2.4.1\options.py" />
+    <Content Include="tornado 2.4.1\platform\auto.py" />
+    <Content Include="tornado 2.4.1\platform\common.py" />
+    <Content Include="tornado 2.4.1\platform\interface.py" />
+    <Content Include="tornado 2.4.1\platform\posix.py" />
+    <Content Include="tornado 2.4.1\platform\twisted.py" />
+    <Content Include="tornado 2.4.1\platform\windows.py" />
+    <Content Include="tornado 2.4.1\platform\__init__.py" />
+    <Content Include="tornado 2.4.1\process.py" />
+    <Content Include="tornado 2.4.1\simple_httpclient.py" />
+    <Content Include="tornado 2.4.1\stack_context.py" />
+    <Content Include="tornado 2.4.1\template.py" />
+    <Content Include="tornado 2.4.1\testing.py" />
+    <Content Include="tornado 2.4.1\test\auth_test.py" />
+    <Content Include="tornado 2.4.1\test\curl_httpclient_test.py" />
+    <Content Include="tornado 2.4.1\test\escape_test.py" />
+    <Content Include="tornado 2.4.1\test\gen_test.py" />
+    <Content Include="tornado 2.4.1\test\httpclient_test.py" />
+    <Content Include="tornado 2.4.1\test\httpserver_test.py" />
+    <Content Include="tornado 2.4.1\test\httputil_test.py" />
+    <Content Include="tornado 2.4.1\test\import_test.py" />
+    <Content Include="tornado 2.4.1\test\ioloop_test.py" />
+    <Content Include="tornado 2.4.1\test\iostream_test.py" />
+    <Content Include="tornado 2.4.1\test\locale_test.py" />
+    <Content Include="tornado 2.4.1\test\options_test.py" />
+    <Content Include="tornado 2.4.1\test\process_test.py" />
+    <Content Include="tornado 2.4.1\test\runtests.py" />
+    <Content Include="tornado 2.4.1\test\simple_httpclient_test.py" />
+    <Content Include="tornado 2.4.1\test\stack_context_test.py" />
+    <Content Include="tornado 2.4.1\test\static\robots.txt" />
+    <Content Include="tornado 2.4.1\test\templates\utf8.html" />
+    <Content Include="tornado 2.4.1\test\template_test.py" />
+    <Content Include="tornado 2.4.1\test\testing_test.py" />
+    <Content Include="tornado 2.4.1\test\twisted_test.py" />
+    <Content Include="tornado 2.4.1\test\util_test.py" />
+    <Content Include="tornado 2.4.1\test\web_test.py" />
+    <Content Include="tornado 2.4.1\test\wsgi_test.py" />
+    <Content Include="tornado 2.4.1\test\__init__.py" />
+    <Content Include="tornado 2.4.1\util.py" />
+    <Content Include="tornado 2.4.1\web.py" />
+    <Content Include="tornado 2.4.1\websocket.py" />
+    <Content Include="tornado 2.4.1\wsgi.py" />
+    <Content Include="tornado 2.4.1\__init__.py" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="tornado 2.4.1\ca-certificates.crt" />
+    <None Include="tornado 2.4.1\test\csv_translations\fr_FR.csv" />
+    <None Include="tornado 2.4.1\test\gettext_translations\fr_FR\LC_MESSAGES\tornado_test.mo" />
+    <None Include="tornado 2.4.1\test\gettext_translations\fr_FR\LC_MESSAGES\tornado_test.po" />
+    <None Include="tornado 2.4.1\test\README" />
+    <None Include="tornado 2.4.1\test\test.crt" />
+    <None Include="tornado 2.4.1\test\test.key" />
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+  <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
+       Other similar extension points exist, see Microsoft.Common.targets.
+  <Target Name="BeforeBuild">
+  </Target>
+  <Target Name="AfterBuild">
+  </Target>
+  -->
+</Project>
