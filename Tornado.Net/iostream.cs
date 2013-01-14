@@ -130,6 +130,13 @@ namespace Tornado.iostream
                 _maybe_add_error_listener();
             }
         }
+
+        public void set_close_callback(Action callback)
+        {
+            //Call the given callback when the stream is closed."""
+            _close_callback = callback; //stack_context.wrap(callback)
+        }
+
         public void close()
         {
             // Close this stream.
@@ -168,17 +175,23 @@ namespace Tornado.iostream
             }
         }
 
-        private bool reading()
+        public bool reading()
         {
             // Returns true if we are currently reading from the stream.
 
             return (_read_callback != null);
         }
 
-        private bool writing()
+        public bool writing()
         {
             // Returns true if we are currently writing to the stream.
             return _write_buffer.Any();
+        }
+
+        public bool closed()
+        {
+            //Returns true if the stream has been closed.
+            return (socket == null);
         }
 
         private void _handle_events(int fd, int events)

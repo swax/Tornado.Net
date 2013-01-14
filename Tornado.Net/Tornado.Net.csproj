@@ -41,6 +41,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="extensions.cs" />
+    <Compile Include="httplib.cs" />
     <Compile Include="httpserver.cs" />
     <Compile Include="httputil.cs" />
     <Compile Include="ioloop.cs" />

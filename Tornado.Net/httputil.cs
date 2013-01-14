@@ -130,7 +130,7 @@ namespace Tornado.httputil
 
         public new void Add(string name, string value)
         {
-            throw new Exception("Use the add() function");
+            add(name, value);
         }
 
         public new void Remove(string name)

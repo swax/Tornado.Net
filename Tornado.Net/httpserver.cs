@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
@@ -9,6 +10,7 @@ using Tornado.httputil;
 using Tornado.ioloop;
 using Tornado.iostream;
 using Tornado.netutil;
+using Tornado.web;
 
 
 namespace Tornado.httpserver
@@ -104,11 +106,11 @@ namespace Tornado.httpserver
 
         */
 
-        public Action<HTTPRequest> request_callback;
+        public Func<HTTPRequest, RequestHandler> request_callback;
         public bool no_keep_alive;
         public bool xheaders;
 
-        public HTTPServer(Action<HTTPRequest> request_callback_, bool no_keep_alive_ = false, IOLoop io_loop_ = null, bool xheaders_ = false, object ssl_options_ = null)
+        public HTTPServer(Func<HTTPRequest, RequestHandler> request_callback_, bool no_keep_alive_ = false, IOLoop io_loop_ = null, bool xheaders_ = false, object ssl_options_ = null)
             : base(io_loop_, ssl_options_)
         {
             request_callback = request_callback_;
@@ -141,17 +143,17 @@ namespace Tornado.httpserver
 
         public IOStream stream;
         public IPEndPoint address;
-        public Action<HTTPRequest> request_callback;
+        public Func<HTTPRequest, RequestHandler> request_callback;
         public bool no_keep_alive;
         public bool xheaders;
 
         private HTTPRequest _request;
         private bool _request_finished;
         private Action<byte[]> _header_callback;
-        private object _write_callback;
+        private Action _write_callback;
 
 
-        public HTTPConnection(IOStream stream_, IPEndPoint address_, Action<HTTPRequest> request_callback_, bool no_keep_alive_ = false, bool xheaders_ = false)
+        public HTTPConnection(IOStream stream_, IPEndPoint address_, Func<HTTPRequest, RequestHandler> request_callback_, bool no_keep_alive_ = false, bool xheaders_ = false)
         {
             stream = stream_;
             address = address_;
@@ -173,6 +175,74 @@ namespace Tornado.httpserver
             // Remove this reference to self, which would otherwise cause a
             // cycle and delay garbage collection of this connection.
             _header_callback = null;
+        }
+
+        public void write(byte[] chunk, Action callback=null)
+        {
+            //Writes a chunk of output to the stream."""
+            Debug.Assert(_request != null, "Request closed");
+            if (!stream.closed())
+            {
+                _write_callback = callback; // stack_context.wrap(callback);
+                stream.write(chunk, _on_write_complete);
+            }
+        }
+
+        public void finish()
+        {
+            //Finishes the request.
+            Debug.Assert(_request != null, "Request closed");
+            _request_finished = true;
+            if (!stream.writing())
+                _finish_request();
+        }
+
+        public void _on_write_complete()
+        {
+            if (_write_callback != null)
+            {
+                var callback = _write_callback;
+                _write_callback = null;
+                callback();
+            }
+            // _on_write_complete is enqueued on the IOLoop whenever the
+            // IOStream's write buffer becomes empty, but it's possible for
+            // another callback that runs on the IOLoop before it to
+            // simultaneously write more data and finish the request.  If
+            // there is still data in the IOStream, a future
+            // _on_write_complete will be responsible for calling
+            // _finish_request.
+            if (_request_finished && !stream.writing())
+                _finish_request();
+        }
+
+        public void _finish_request()
+        {
+            bool disconnect = false;
+
+            if (no_keep_alive)
+                disconnect = true;
+            else
+            {
+                var connection_header = _request.headers.get("Connection");
+                if (connection_header != null)
+                    connection_header = connection_header.ToLowerInvariant();
+                if (_request.supports_http_1_1())
+                    disconnect = (connection_header == "close");
+                else if (_request.headers.ContainsKey("Content-Length") ||
+                         (_request.method == "HEAD" || _request.method == "GET"))
+                    disconnect = (connection_header != "keep-alive");
+                else
+                    disconnect = true;
+            }
+            _request = null;
+            _request_finished = false;
+            if (disconnect)
+            {
+                close();
+                return;
+            }
+            stream.read_until(Encoding.UTF8.GetBytes("\r\n\r\n"), _header_callback);
         }
 
         private void _on_headers(byte[] data_)
@@ -330,6 +400,12 @@ namespace Tornado.httpserver
         public string protocol;
         public string host;
         public HTTPConnection connection;
+        public string path;
+        public string query;
+
+        private DateTime _start_time;
+        private DateTime _finish_time;
+
 
         public HTTPRequest(string method_, string uri_, string version_="HTTP/1.0", HTTPHeaders headers_=null,
                      byte[] body_=null, string remote_ip_=null, string protocol_=null, string host_=null,
@@ -366,12 +442,17 @@ namespace Tornado.httpserver
             host = host_ ?? headers.get("Host") ?? "127.0.0.1";
             //todo files = files_ ?? {}
             connection = connection_;
-            //todo
-            /*_start_time = time.time()
-            _finish_time = None
+            _start_time = DateTime.Now;
+            //_finish_time = None
 
-            path, sep, query = uri.partition('?')
-            arguments = parse_qs_bytes(query)
+            //todo
+
+            var parts = uri.Split(new char[] { '?' }, 2);
+            path = parts.Length > 0 ? parts[0] : null;
+            query = parts.Length > 1 ? parts[1] : null;
+
+            // todo implement
+            /*arguments = parse_qs_bytes(query)
             arguments = {}
             for name, values in arguments.iteritems():
                 values = [v for v in values if v]
@@ -383,6 +464,19 @@ namespace Tornado.httpserver
         {
             //Returns True if this request supports HTTP/1.1 semantics
             return version == "HTTP/1.1";
+        }
+
+        public void write(byte[] chunk, Action callback=null)
+        {
+            //Writes the given chunk to the response stream.
+            connection.write(chunk, callback);
+        }
+
+        public void finish()
+        {
+            //Finishes this HTTP request on the open connection.
+            connection.finish();
+            _finish_time = DateTime.Now;
         }
 
         private bool _valid_ip(string ip)

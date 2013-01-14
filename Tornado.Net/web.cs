@@ -32,14 +32,16 @@ namespace Tornado.web
         private bool _headers_written;
         private bool _finished;
         private bool _auto_finish;
-        private int _status_code;
-        private Dictionary<string, string> _headers;
+        private List<OutputTransform> _transforms;
+
+        protected int _status_code;
+        private HTTPHeaders _headers;
         private TupleList<string, string> _list_headers;
-        private List<object> _write_buffer;
+        private List<byte[]> _write_buffer;
 
         public RequestHandler() { }
 
-        public RequestHandler(Application application_, HTTPRequest request_, Dictionary<string, string> kwargs)
+        public RequestHandler(Application application_, HTTPRequest request_, Dictionary<string, object> kwargs)
         {
             //def __init__(self, application, request, **kwargs):
             //super(RequestHandler, self).__init__()
@@ -49,9 +51,10 @@ namespace Tornado.web
             _headers_written = false;
             _finished = false;
             _auto_finish = true;
-            //todo implement
-            /*self._transforms = None  // will be set in _execute
-            self.ui = ObjectDict((n, self._ui_method(m)) for n, m in
+
+            _transforms = null;  // will be set in _execute
+            //todo implement 
+            /*self.ui = ObjectDict((n, self._ui_method(m)) for n, m in
                          application.ui_methods.iteritems())*/
             // UIModules are available as both `modules` and `_modules` in the
             // template namespace.  Historically only `modules` was available
@@ -63,13 +66,12 @@ namespace Tornado.web
             self.ui["modules"] = self.ui["_modules"]*/
             clear();
             // Check since connection is not available in WSGI
-            /*if getattr(self.request, "connection", None):
-                self.request.connection.stream.set_close_callback(
-                    self.on_connection_close)*/
+            if (request.connection != null)
+                request.connection.stream.set_close_callback(on_connection_close);
             initialize(kwargs);
         }
 
-        public virtual void initialize(Dictionary<string, string> kwargs)
+        public virtual void initialize(Dictionary<string, object> kwargs)
         {
             /*Hook for subclass initialization.
 
@@ -92,6 +94,57 @@ namespace Tornado.web
             return;
         }
 
+        public virtual void get()
+        {
+
+        }
+
+        public Dictionary<string,object> settings()
+        {
+            //An alias for `self.application.settings`."""
+            return application.settings;
+        }
+
+        public virtual void prepare()
+        {
+            /*Called at the beginning of a request before `get`/`post`/etc.
+
+            Override this method to perform common initialization regardless
+            of the request method.
+            */
+            return;
+        }
+
+        public virtual void on_finish()
+        {
+            /*Called after the end of a request.
+
+            Override this method to perform cleanup, logging, etc.
+            This method is a counterpart to `prepare`.  ``on_finish`` may
+            not produce any output, as it is called after the response
+            has been sent to the client.
+            */
+            return;
+        }
+
+        public virtual void on_connection_close()
+        {
+            /*Called in async handlers if the client closed the connection.
+
+            Override this to clean up resources associated with
+            long-lived connections.  Note that this method is called only if
+            the connection was closed during asynchronous processing; if you
+            need to do cleanup after every request override `on_finish`
+            instead.
+
+            Proxies may keep a connection open for a time (perhaps
+            indefinitely) after the client has gone away, so this method
+            may not be called promptly after the end user closes their
+            connection.
+            */
+            return;
+        }
+
         public void clear()
         {
             //Resets all headers and content for this response."""
@@ -100,7 +153,7 @@ namespace Tornado.web
             // and its case-normalization is not generally necessary for
             // headers we generate on the server side, so use a plain dict
             // and list instead.
-            _headers = new Dictionary<string,string>() {
+            _headers = new HTTPHeaders {
                 {"Server", "TornadoServer/" + tornado.version},
                 {"Content-Type", "text/html; charset=UTF-8"}
             };
@@ -109,7 +162,7 @@ namespace Tornado.web
             if (!request.supports_http_1_1())
                 if (request.headers.get("Connection") == "Keep-Alive")
                     set_header("Connection", "Keep-Alive");
-            _write_buffer = new List<object>();
+            _write_buffer = new List<byte[]>();
             _status_code = 200;
         }
 
@@ -125,10 +178,21 @@ namespace Tornado.web
             return;
         }
 
+        public void clear_header(string name)
+        {
+            /*Clears an outgoing header, undoing a previous `set_header` call.
+
+            Note that this method does not apply to multi-valued headers
+            set by `add_header`.
+            */
+            if (_headers.ContainsKey(name))
+                _headers.Remove(name);
+        }
+
         public void set_status(int status_code)
         {
             // Sets the status code for our response.
-            //todo assert status_code in httplib.responses;
+            Debug.Assert(httplib.responses.ContainsKey(status_code));
             _status_code = status_code;
         }
 
@@ -191,7 +255,7 @@ namespace Tornado.web
             finish();
         }
 
-        public void write(object chunk)
+        public void write(byte[] chunk)
         {
             /*Writes the given chunk to the output buffer.
 
@@ -216,11 +280,57 @@ namespace Tornado.web
             if isinstance(chunk, dict):
                 chunk = escape.json_encode(chunk)
                 self.set_header("Content-Type", "application/json; charset=UTF-8")*/
-            var chunk_ = chunk.ToString();
-            _write_buffer.Add(chunk_);
+      
+            _write_buffer.Add(chunk);
         }
 
-        public void finish(object chunk=null)
+        public void flush(bool include_footers=false, Action callback=null)
+        {
+            /*Flushes the current output buffer to the network.
+
+            The ``callback`` argument, if given, can be used for flow control:
+            it will be run when all flushed data has been written to the socket.
+            Note that only one flush callback can be outstanding at a time;
+            if another flush occurs before the previous flush's callback
+            has been run, the previous callback will be discarded.
+            */
+            if (application._wsgi)
+                throw new Exception("WSGI applications do not support flush()");
+
+            var chunk = ByteArrayExtensions.join(_write_buffer.ToArray());
+            _write_buffer = new List<byte[]>();
+            byte[] headers = null;
+            if (!_headers_written)
+            {
+                _headers_written = true;
+                foreach (var transform in _transforms)
+                {
+                    var result = transform.transform_first_chunk(_status_code, _headers, chunk, include_footers);
+                    _status_code = result.Item1;
+                    _headers = result.Item2;
+                    chunk = result.Item3;
+                }
+                headers = _generate_headers();
+            }
+            else
+            {
+                foreach (var transform in _transforms)
+                    chunk = transform.transform_chunk(chunk, include_footers);
+                headers = new byte[]{};
+            }
+
+            // Ignore the chunk and only write the headers for HEAD requests
+            if (request.method == "HEAD")
+            {
+                if (headers != null && headers.Length > 0)
+                    request.write(headers, callback);
+                return;
+            }
+                    
+            request.write(ByteArrayExtensions.join(headers, chunk), callback);
+        }
+
+        public void finish(byte[] chunk=null)
         {
             // Finishes this response, ending the HTTP request.
             if (_finished)
@@ -233,37 +343,138 @@ namespace Tornado.web
 
             // Automatically support ETags and add the Content-Length header if
             // we have not flushed any content yet.
-            /*if not self._headers_written:
-                if (self._status_code == 200 and
-                    self.request.method in ("GET", "HEAD") and
-                    "Etag" not in self._headers):
-                    etag = self.compute_etag()
-                    if etag is not None:
-                        self.set_header("Etag", etag)
-                        inm = self.request.headers.get("If-None-Match")
-                        if inm and inm.find(etag) != -1:
-                            self._write_buffer = []
-                            self.set_status(304)
-                if self._status_code == 304:
-                    assert not self._write_buffer, "Cannot send body with 304"
-                    self._clear_headers_for_304()
-                elif "Content-Length" not in self._headers:
-                    content_length = sum(len(part) for part in self._write_buffer)
-                    self.set_header("Content-Length", content_length)
+            if (!_headers_written)
+            {
+                if (_status_code == 200 && 
+                    (request.method == "GET" || request.method == "HEAD") && 
+                    !_headers.ContainsKey("Etag"))
+                {
+                    var etag = compute_etag();
+                    if (etag != null)
+                    {
+                        set_header("Etag", etag);
+                        var inm = request.headers.get("If-None-Match");
+                        if (inm != null && inm.IndexOf(etag) != -1)
+                        {
+                            _write_buffer = new List<byte[]>();
+                            set_status(304);
+                        }
+                    }
+                }
+                if (_status_code == 304)
+                {
+                    Debug.Assert(_write_buffer.Count == 0, "Cannot send body with 304");
+                    _clear_headers_for_304();
+                }
+                else if (!_headers.ContainsKey("Content-Length"))
+                {
+                    var content_length = _write_buffer.Sum(p => p.Length);
+                    set_header("Content-Length", content_length);
+                }
+            }
 
-            if hasattr(self.request, "connection"):
-                # Now that the request is finished, clear the callback we
-                # set on the IOStream (which would otherwise prevent the
-                # garbage collection of the RequestHandler when there
-                # are keepalive connections)
-                self.request.connection.stream.set_close_callback(None)
+            if (request.connection != null)
+                // Now that the request is finished, clear the callback we
+                // set on the IOStream (which would otherwise prevent the
+                // garbage collection of the RequestHandler when there
+                // are keepalive connections)
+                request.connection.stream.set_close_callback(null);
 
-            if not self.application._wsgi:
-                self.flush(include_footers=True)
-                self.request.finish()
-                self._log()
-            self._finished = True
-            self.on_finish()*/
+            if (!application._wsgi)
+            {
+                flush(true); 
+                request.finish();
+                //todo logging _log();
+            }
+            _finished = true;
+            on_finish();
+        }
+
+        public string compute_etag()
+        {
+            /*Computes the etag header to be used for this request.
+
+            May be overridden to provide custom etag implementations,
+            or may return None to disable tornado's default etag support.
+            */
+            var hasher = new System.Security.Cryptography.SHA1Managed();
+
+            foreach(var part in _write_buffer)
+                hasher.TransformBlock(part, 0, part.Length, part, 0);
+
+            hasher.TransformFinalBlock(new byte[] {}, 0, 0);
+
+            return BitConverter.ToString(hasher.Hash).Replace("-", "").ToLower();
+        }
+
+        public void _execute(List<OutputTransform> transforms, List<object> args, Dictionary<string, string> kwargs)
+        {
+            //Executes this request with the given output transforms.
+            _transforms = transforms;
+            try
+            {
+                if (!SUPPORTED_METHODS.Contains(request.method))
+                    throw new HTTPError(405);
+
+                // If XSRF cookies are turned on, reject form submissions without
+                // the proper cookie
+                // todo cookies 
+                /*if (request.method != "GET" && request.method != "HEAD" && request.method != "OPTIONS" && 
+                    application.settings.get("xsrf_cookies") != null)
+                    check_xsrf_cookie();*/
+                prepare();
+                if (!_finished)
+                {
+                    // todo implement
+                    /*var args = [self.decode_argument(arg) for arg in args]
+                    var kwargs = dict((k, self.decode_argument(v, name=k))
+                                  for (k, v) in kwargs.iteritems())
+                    getattr(self, self.request.method.lower())(*args, **kwargs)*/
+
+                    // todo delete
+                    if(request.method.ToLower() == "get")
+                        get();
+
+                    if (_auto_finish && !_finished)
+                        finish();
+                }
+            }
+            catch(Exception ex)
+            {
+                //todo implement _handle_request_exception(e);
+            }
+        }
+
+        public byte[] _generate_headers()
+        {
+            var lines = new List<string>() {request.version + " " +
+                          _status_code.ToString() +
+                          " " + httplib.responses[_status_code]};
+
+            foreach(var nv in _headers)
+                lines.Add(nv.Key + ": " + nv.Value);
+            foreach(var nv in _list_headers)
+                lines.Add(nv.Item1 + ": " + nv.Item2);
+
+            //todo cookies
+            /*if hasattr(self, "_new_cookie"):
+                for cookie in self._new_cookie.values():
+                    lines.append(utf8("Set-Cookie: " + cookie.OutputString(None)))*/
+
+            return UTF8Encoding.UTF8.GetBytes(String.Join("\r\n", lines) + "\r\n\r\n");
+        }
+
+        private void _clear_headers_for_304()
+        {
+            // 304 responses should not contain entity headers (defined in
+            // http://www.w3.org/Protocols/rfc2616/rfc2616-sec7.html#sec7.1)
+            // not explicitly allowed by
+            // http://www.w3.org/Protocols/rfc2616/rfc2616-sec10.html#sec10.3.5
+            var headers = new string[] {"Allow", "Content-Encoding", "Content-Language",
+                   "Content-Length", "Content-MD5", "Content-Range",
+                   "Content-Type", "Last-Modified"};
+            foreach (var h in headers)
+                clear_header(h);
         }
     }
 
@@ -275,10 +486,10 @@ namespace Tornado.web
         public string default_host;
         public Dictionary<string, object> settings;
 
-        private bool _wsgi;
+        public bool _wsgi;
 
 
-        public Application(TupleList<string, Func<RequestHandler>, Dictionary<string, string>> handlers_ = null, string default_host_ = "", List<Func<HTTPRequest, OutputTransform>> transforms_ = null,
+        public Application(TupleList<string, CreateRequestHandler, Dictionary<string, object>> handlers_ = null, string default_host_ = "", List<Func<HTTPRequest, OutputTransform>> transforms_ = null,
                  bool wsgi=false, Dictionary<string, object> settings_=null)
         {
             if (settings_ == null) 
@@ -309,10 +520,10 @@ namespace Tornado.web
             if (settings.get("static_path") != null)
             {
                 var path = settings["static_path"] as string;
-                handlers_ = handlers_ ?? new TupleList<string,Func<RequestHandler>,Dictionary<string, string>>();
+                handlers_ = handlers_ ?? new TupleList<string, CreateRequestHandler, Dictionary<string, object>>();
                 var static_url_prefix = settings.get("static_url_prefix", "/static/");
-                var static_handler_class = settings.get<Func<RequestHandler>>("static_handler_class", () => new StaticFileHandler());
-                var static_handler_args = settings.get("static_handler_args", new Dictionary<string, string>());
+                var static_handler_class = settings.get<CreateRequestHandler>("static_handler_class", (app, rq, args) => new StaticFileHandler(app, rq, args));
+                var static_handler_args = settings.get("static_handler_args", new Dictionary<string, object>());
                 static_handler_args["path"] = path;
 
                 foreach (var pattern in new string[] {Regex.Escape(static_url_prefix) + @"(.*)", 
@@ -352,7 +563,7 @@ namespace Tornado.web
             server.listen(port, address);
         }
 
-        public void add_handlers(string host_pattern, TupleList<string, Func<RequestHandler>, Dictionary<string, string>> host_handlers)
+        public void add_handlers(string host_pattern, TupleList<string, CreateRequestHandler, Dictionary<string, object>> host_handlers)
         {
             /*Appends the given handlers to our handler list.
 
@@ -429,24 +640,26 @@ namespace Tornado.web
             return null;
         }
 
-        public void Call(HTTPRequest request)
+        public RequestHandler Call(HTTPRequest request)
         {
             // Called by HTTPServer to execute the request.
-            var transforms_ = transforms.Select(t => t(request));
-            object handler = null;
+            var transforms_ = transforms.Select(t => t(request)).ToList();
+            RequestHandler handler = null;
             var args = new List<object>();
             var kwargs = new Dictionary<string, string>();
             var handlers_ = _get_host_handlers(request);
             if (handlers == null || !handlers.Any())
                 handler = new RedirectHandler(this, 
-                    request, new Dictionary<string, string>(){{"url", "http://" + default_host + "/"}});
-            /*else
+                    request, new Dictionary<string, object>(){{"url", "http://" + default_host + "/"}});
+            else
             {
-                for spec in handlers:
-                    match = spec.regex.match(request.path)
-                    if match:
-                        handler = spec.handler_class(self, request, **spec.kwargs)
-                        if spec.regex.groups:
+                foreach (var spec in handlers_)
+                {
+                    var match = spec.regex.IsMatch(request.path);
+                    if (match)
+                    {
+                        handler = spec.handler_class(this, request, spec.kwargs);
+                        /*if spec.regex.groups:
                             // None-safe wrapper around url_unescape to handle
                             // unmatched optional groups correctly
                             def unquote(s):
@@ -464,25 +677,77 @@ namespace Tornado.web
                                     (str(k), unquote(v))
                                     for (k, v) in match.groupdict().iteritems())
                             else:
-                                args = [unquote(s) for s in match.groups()]
-                        break
-                if not handler:
-                    handler = ErrorHandler(self, request, status_code=404)
+                                args = [unquote(s) for s in match.groups()]*/
+                        break;
+                    }
+                }
+                if (handler == null)
+                    handler = new ErrorHandler(this, request, new Dictionary<string, object>{{"status_code", 404}});
             }
             // In debug mode, re-compile templates and reload static files on every
             // request so you don't need to restart to see changes
-            if self.settings.get("debug"):
+            /*if self.settings.get("debug"):
                 with RequestHandler._template_loader_lock:
                     for loader in RequestHandler._template_loaders.values():
                         loader.reset()
-                StaticFileHandler.reset()
+                StaticFileHandler.reset()*/
 
-            handler._execute(transforms, *args, **kwargs)
-            return handler*/
+            handler._execute(transforms_, args, kwargs);
+            return handler;
         }
     }
 
-    class RedirectHandler : RequestHandler
+    public class HTTPError : Exception
+    {
+        public int status_code;
+        public string log_message;
+        public object[] args;
+
+
+        // An exception that will turn into an HTTP error response.
+        public HTTPError(int status_code_, string log_message_ = null, object[] args_=null)
+        {
+            args_ = args_ ?? new object[0];
+
+            status_code = status_code_;
+            log_message = log_message_;
+            args = args_;
+        }
+
+        public override string ToString()
+        {
+            var message = string.Format("HTTP {0}: {1}",
+               status_code, httplib.responses[status_code]);
+
+            if (log_message != null)
+                return message + " (" + string.Format(log_message, args) + ")";
+            else
+                return message;
+        }
+
+    }
+
+    public class ErrorHandler : RequestHandler
+    {
+        // Generates an error response with status_code for all requests.
+
+        public ErrorHandler(Application application_, HTTPRequest request_, Dictionary<string, object> kwargs)
+            : base(application_, request_, kwargs)
+        {
+        }
+
+        public override void initialize(Dictionary<string, object> kwargs) //int status_code)
+        {
+            set_status((int)kwargs["status_code"]);
+        }
+
+        public override void prepare()
+        {
+            throw new HTTPError(_status_code);
+        }
+    }
+
+    public class RedirectHandler : RequestHandler
     {
        /*Redirects the client to the given URL for all GET requests.
 
@@ -496,18 +761,20 @@ namespace Tornado.web
         private string _url;
         private bool _permanent;
 
-        public RedirectHandler(Application application_, HTTPRequest request_, Dictionary<string, string> kwargs)
+        public RedirectHandler(Application application_, HTTPRequest request_, Dictionary<string, object> kwargs)
             : base(application_, request_, kwargs)
         {
         }
 
-        public void initialize(string url, bool permanent=true)
+        public override void initialize(Dictionary<string, object> kwargs)// string url, bool permanent=true)
         {
-            _url = url;
-            _permanent = permanent;
+            //todo fix
+            /*
+            _url = (string)kwargs["url");
+            _permanent = (bool)kwargs.get("permanent", true);*/
         }
 
-        public void get()
+        public override void get()
         {
             redirect(_url, _permanent);
         }
@@ -515,11 +782,10 @@ namespace Tornado.web
 
     public class StaticFileHandler : RequestHandler
     {
-        public StaticFileHandler() 
+        public StaticFileHandler(Application application_, HTTPRequest request_, Dictionary<string, object> kwargs)
+            : base(application_, request_, kwargs)
         {
-
         }
-
     }
 
     public class OutputTransform
@@ -661,12 +927,12 @@ namespace Tornado.web
     public class URLSpec
     {
         public Regex regex;
-        public Func<RequestHandler> handler_class;
-        public Dictionary<string,string> kwargs;
+        public CreateRequestHandler handler_class;
+        public Dictionary<string,object> kwargs;
         public string name;
 
         //Specifies mappings between URLs and handlers.
-        public URLSpec(string pattern, Func<RequestHandler> handler_class_, Dictionary<string,string> kwargs_=null, string name_=null)
+        public URLSpec(string pattern, CreateRequestHandler handler_class_, Dictionary<string, object> kwargs_ = null, string name_ = null)
         {
             /*Creates a URLSpec.
 
@@ -691,7 +957,7 @@ namespace Tornado.web
                 ("groups in url regexes must either be all named or all "
                  "positional: %r" % self.regex.pattern)*/
             handler_class = handler_class_;
-            kwargs = kwargs_ ?? new Dictionary<string,string>();
+            kwargs = kwargs_ ?? new Dictionary<string,object>();
             name = name_;
             //todo _path, self._group_count = self._find_groups();
         }

@@ -4,6 +4,10 @@ using System.Linq;
 using System.Net.Sockets;
 using System.Text;
 
+using Tornado.web;
+using Tornado.httpserver;
+
+
 namespace Tornado
 {
     public static class SocketExtensions
@@ -222,4 +226,6 @@ namespace Tornado
             return new Uri(new Uri(baseUrl), relUrl).ToString();
         }
     }
+
+    public delegate RequestHandler CreateRequestHandler(Application app, HTTPRequest req, Dictionary<string, object> args);
 }
