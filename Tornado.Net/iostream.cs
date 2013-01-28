@@ -198,7 +198,7 @@ namespace Tornado.iostream
         {
             if (socket == null)
             {
-                //todo logging.warning("Got events for closed stream %d", fd)
+                logging.warning(string.Format("Got events for closed stream {0}", fd));
                 return;
             }
             try
@@ -239,7 +239,7 @@ namespace Tornado.iostream
             }
             catch(Exception ex)
             {
-                //todo logging.error("Uncaught exception, closing connection.", exc_info=True)
+                logging.error("Uncaught exception, closing connection.", ex);
                 close();
                 throw;
             }
@@ -256,7 +256,7 @@ namespace Tornado.iostream
                 }
                 catch (Exception ex)
                 {
-                    //todo logging.error("Uncaught exception, closing connection.", exc_info=True)
+                    logging.error("Uncaught exception, closing connection.", ex);
                     // Close the socket on an uncaught exception from a user callback
                     // (It would eventually get closed when the socket object is
                     // gc'd, but we don't want to rely on gc happening before we
@@ -323,7 +323,7 @@ namespace Tornado.iostream
             }
             catch(Exception ex)
             {
-                //todo logging.warning("error on read", exc_info=True)
+                logging.warning("error on read", ex);
                 close();
                 return;
             }
@@ -418,7 +418,7 @@ namespace Tornado.iostream
             catch(SocketException ex)
             {
                 // ssl.SSLError is a subclass of socket.error
-                //todo logging.warning("Read error on %d: %s", socket.fileno(), e)
+                logging.warning(string.Format("Read error on {0}: {1}", socket.fileno(), ex));
                 close();
                 throw;
             }
@@ -428,7 +428,7 @@ namespace Tornado.iostream
             _read_buffer_size += chunk.Length;
             if (_read_buffer_size >= max_buffer_size)
             {
-                //todo logging.error("Reached maximum read buffer size")
+                logging.error("Reached maximum read buffer size");
                 close();
                 throw new IOError("Reached maximum read buffer size");
             }
@@ -532,7 +532,7 @@ namespace Tornado.iostream
                 // an error state before the socket becomes writable, so
                 // in that case a connection failure would be handled by the
                 // error path in _handle_events instead of here.
-                //logging.warning("Connect error on fd %d: %s", socket.fileno(), errno.errorcode[err])
+                logging.warning(string.Format("Connect error on fd {0}: {1}", socket.fileno(), err)); //errno.errorcode[err])
                 close();
                 return;
             }
@@ -587,7 +587,7 @@ namespace Tornado.iostream
                     }
                     else
                     {
-                        //todo logging.warning("Write error on %d: %s", socket.fileno(), e)
+                        logging.warning(string.Format("Write error on {0}: {1}", socket.fileno(), ex));
                         close();
                         return;
                     }

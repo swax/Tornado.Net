@@ -5,6 +5,7 @@ using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Web;
 
 using Tornado.httputil;
 using Tornado.ioloop;
@@ -298,7 +299,7 @@ namespace Tornado.httpserver
             }
             catch(Exception ex)
             {
-                //todo logging.info("Malformed HTTP request from %s: %s", self.address[0], e)
+                logging.info(string.Format("Malformed HTTP request from {0}: {1}", address, ex));
                 close();
                 return;
             }
@@ -402,9 +403,11 @@ namespace Tornado.httpserver
         public HTTPConnection connection;
         public string path;
         public string query;
+        public Dictionary<string, string[]> arguments;
+        public Dictionary<string, HttpCookie> cookies;
 
         private DateTime _start_time;
-        private DateTime _finish_time;
+        private DateTime? _finish_time;
 
 
         public HTTPRequest(string method_, string uri_, string version_="HTTP/1.0", HTTPHeaders headers_=null,
@@ -443,21 +446,21 @@ namespace Tornado.httpserver
             //todo files = files_ ?? {}
             connection = connection_;
             _start_time = DateTime.Now;
-            //_finish_time = None
-
-            //todo
+            _finish_time = null;
 
             var parts = uri.Split(new char[] { '?' }, 2);
             path = parts.Length > 0 ? parts[0] : null;
             query = parts.Length > 1 ? parts[1] : null;
 
-            // todo implement
-            /*arguments = parse_qs_bytes(query)
-            arguments = {}
-            for name, values in arguments.iteritems():
-                values = [v for v in values if v]
-                if values:
-                    arguments[name] = values*/
+            var arguments_ = System.Web.HttpUtility.ParseQueryString(query ?? "");// parse_qs_bytes(query)
+            arguments = new Dictionary<string, string[]>();
+            foreach(var name in arguments_.AllKeys)
+            {
+                var values = arguments_.GetValues(name);
+
+                if(values != null)
+                    arguments[name] = values;
+            }
         }
 
         public bool supports_http_1_1()

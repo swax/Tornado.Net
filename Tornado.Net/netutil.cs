@@ -175,7 +175,7 @@ namespace Tornado.netutil
             }
             catch(Exception ex)
             {
-                //todo logging.error("Error in connection callback", exc_info = True);
+                logging.error("Error in connection callback", ex);
             }
         }
 

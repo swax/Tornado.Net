@@ -6,6 +6,7 @@ using System.Text;
 
 using Tornado.web;
 using Tornado.httpserver;
+using System.Web;
 
 
 namespace Tornado
@@ -206,6 +207,14 @@ namespace Tornado
         }
     }
 
+    public class ValueError : Exception
+    {
+        public ValueError(string message)
+            : base(message)
+        {
+        }
+    }
+
     public class RuntimeError : Exception
     {
         public RuntimeError(string message)
@@ -228,4 +237,39 @@ namespace Tornado
     }
 
     public delegate RequestHandler CreateRequestHandler(Application app, HTTPRequest req, Dictionary<string, object> args);
+
+    public class SimpleCookie : Dictionary<string, HttpCookie>
+    {
+
+    }
+
+    public static class logging
+    {
+        public static void info(string msg)
+        {
+            Console.WriteLine(msg);
+        }
+
+        public static void warning(string msg, Exception exc_info=null)
+        {
+            if(exc_info != null)
+                msg += ", Exception: " + exc_info.ToString();
+            Console.WriteLine(msg);
+        }
+
+        public static void debug(string msg, Exception exc_info = null)
+        {
+            if (exc_info != null)
+                msg += ", Exception: " + exc_info.ToString();
+            Console.WriteLine(msg);
+        }
+
+        public static void error(string msg, Exception exc_info = null)
+        {
+            if (exc_info != null)
+                msg += ", Exception: " + exc_info.ToString();
+            Console.WriteLine(msg);
+        }
+
+    }
 }

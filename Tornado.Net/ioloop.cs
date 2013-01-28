@@ -176,7 +176,7 @@ namespace Tornado.ioloop
             }
             catch(Exception ex)
             {
-                //todo logging.debug("Error deleting fd from IOLoop");//, exc_info=True)
+                logging.debug("Error deleting fd from IOLoop", ex);
             }
         }
 
@@ -299,16 +299,16 @@ namespace Tornado.ioloop
                     }
                     catch(SocketException ex) //except (OSError, IOError), e:
                     {
-                     
-                        if(ex.SocketErrorCode == SocketError.ConnectionAborted)  // if e.args[0] == errno.EPIPE:
+
+                        if (ex.SocketErrorCode == SocketError.ConnectionAborted)  // if e.args[0] == errno.EPIPE:
                             // Happens when the client closes the connection
                             continue;
                         else
-                            ;//todo logging.error("Exception in I/O handler for fd %s", fd, exc_info=True)
+                            logging.error(string.Format("Exception in I/O handler for fd {0}", fd), ex);
                     }
                     catch(Exception ex)
                     {
-                        //todo logging.error("Exception in I/O handler for fd %s", fd, exc_info=True)
+                        logging.error(string.Format("Exception in I/O handler for fd {0}", fd), ex);
                     }
                 }
             }
@@ -358,11 +358,11 @@ namespace Tornado.ioloop
             }
             catch (Exception ex)
             {
-                handle_callback_exception(callback);
+                handle_callback_exception(callback, ex);
             }
         }
 
-        private void handle_callback_exception(Action callback)
+        private void handle_callback_exception(Action callback, Exception ex)
         {
             /*This method is called whenever a callback run by the IOLoop
             throws an exception.
@@ -373,7 +373,7 @@ namespace Tornado.ioloop
             The exception itself is not passed explicitly, but is available
             in sys.exc_info.
             */
-            //todo logging.error("Exception in callback %r", callback, exc_info=True)
+            logging.error(string.Format("Exception in callback {0}", callback), ex);
         }
     }
 

@@ -1,0 +1,9 @@
+
+python is not that graceful moving from ascii to utf8 to unicode
+	python v3 adds more complications
+
+C# wish list
+	returning multiple arguments
+	native tuple syntax, and json like syntax  
+		dynamic x = { (1,2), (3,4) } or 
+		dynamic x = { key: "test", value: 56 }

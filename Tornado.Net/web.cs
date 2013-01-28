@@ -6,6 +6,7 @@ using System.IO.Compression;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Web;
 
 using Tornado.httpserver;
 using Tornado.httputil;
@@ -38,6 +39,10 @@ namespace Tornado.web
         private HTTPHeaders _headers;
         private TupleList<string, string> _list_headers;
         private List<byte[]> _write_buffer;
+        private string _xsrf_token;
+        private SimpleCookie _new_cookie;
+        private object _current_user;
+
 
         public RequestHandler() { }
 
@@ -94,15 +99,46 @@ namespace Tornado.web
             return;
         }
 
-        public virtual void get()
-        {
-
-        }
-
+ 
         public Dictionary<string,object> settings()
         {
             //An alias for `self.application.settings`."""
             return application.settings;
+        }
+
+        public virtual void head()
+        {
+            throw new HTTPError(405);
+        }
+
+        public virtual void get()
+        {
+            throw new HTTPError(405);
+        }
+
+        public virtual void post()
+        {
+            throw new HTTPError(405);
+        }
+
+        public virtual void delete()
+        {
+            throw new HTTPError(405);
+        }
+
+        public virtual void patch()
+        {
+            throw new HTTPError(405);
+        }
+
+        public virtual void put()
+        {
+            throw new HTTPError(405);
+        }
+
+        public virtual void options()
+        {
+            throw new HTTPError(405);
         }
 
         public virtual void prepare()
@@ -187,6 +223,129 @@ namespace Tornado.web
             */
             if (_headers.ContainsKey(name))
                 _headers.Remove(name);
+        }
+
+        const string _ARG_DEFAULT = "";//[]
+
+        public string get_argument(string name, string default_=_ARG_DEFAULT, bool strip=true)
+        {
+            /*Returns the value of the argument with the given name.
+
+            If default is not provided, the argument is considered to be
+            required, and we throw an HTTP 400 exception if it is missing.
+
+            If the argument appears in the url more than once, we return the
+            last value.
+
+            The returned value is always unicode.
+            */
+            var args = get_arguments(name, strip);
+            if (args == null)
+            {
+                if (default_ == _ARG_DEFAULT)
+                    throw new HTTPError(400, "Missing argument" + name);
+                return default_;
+            }
+            return args.LastOrDefault();
+        }
+
+        public List<string> get_arguments(string name, bool strip=true)
+        {
+            /*Returns a list of the arguments with the given name.
+
+            If the argument is not present, returns an empty list.
+
+            The returned values are always unicode.
+            */
+            var values = new List<string>();
+            foreach( var v in request.arguments.get(name, new string[]{}))
+            {
+                var v_ = decode_argument(v, name);
+                //if isinstance(v, unicode):
+                    // Get rid of any weird control chars (unless decoding gave
+                    // us bytes, in which case leave it alone)
+                    //todo implement v_ = re.sub(r"[\x00-\x08\x0e-\x1f]", " ", v_)
+                if (strip)
+                    v_ = v_.Trim();
+                values.Add(v);
+            }
+            return values;
+        }
+
+        public string decode_argument(string value, string name=null)
+        {
+            /*Decodes an argument from the request.
+
+            The argument has been percent-decoded and is now a byte string.
+            By default, this method decodes the argument as utf-8 and returns
+            a unicode string, but this may be overridden in subclasses.
+
+            This method is used as a filter for both get_argument() and for
+            values extracted from the url and passed to get()/post()/etc.
+
+            The name of the argument is provided if known, but may be None
+            (e.g. for unnamed groups in the url regex).
+            */
+            return value;//_unicode(value);
+        }
+
+        public Dictionary<string, HttpCookie> cookies
+        {
+            get
+            {
+                return request.cookies;
+            }
+        }
+
+        public string get_cookie(string name, string default_=null)
+        {
+            //Gets the value of the cookie with the given name, else default.
+            if (request.cookies != null && request.cookies.ContainsKey(name))
+                return request.cookies[name].Value;
+            return default_;
+        }
+
+        public void set_cookie(string name, string value, string domain=null, DateTime? expires=null, string path="/",
+                   int? expires_days=null, Dictionary<string, string> kwargs=null)
+        {
+            /*Sets the given cookie name/value with the given options.
+
+            Additional keyword arguments are set on the Cookie.Morsel
+            directly.
+            See http://docs.python.org/library/cookie.html#morsel-objects
+            for available attributes.
+            */
+            // The cookie library only accepts type str, in both python 2 and 3
+            name = escape.native_str(name);
+            value = escape.native_str(value);
+            if (Regex.IsMatch(name + value, "[\x00-\x20]"))
+                // Don't let us accidentally inject bad stuff
+                throw new ValueError(string.Format("Invalid cookie {0}: {1}", name, value));
+            if (_new_cookie == null)
+                _new_cookie = new SimpleCookie();
+            if (_new_cookie.ContainsKey(name)) 
+                _new_cookie.Remove(name);
+            _new_cookie[name] = new HttpCookie(name, value);
+            var morsel = _new_cookie[name];
+            if (domain != null)
+                morsel.Domain = domain;
+            if (expires_days != null && expires == null)
+                expires = DateTime.UtcNow.AddDays(expires_days.Value);
+            if (expires != null)
+                morsel.Expires = expires.Value;
+                //timestamp = calendar.timegm(expires.utctimetuple())
+                //morsel["expires"] = email.utils.formatdate(
+                //    timestamp, localtime=False, usegmt=True)
+            if (path != null)
+                morsel.Path = path;
+            if(kwargs != null)
+                foreach(var kvp in kwargs)
+                {
+                    var k = kvp.Key;
+                    if(k == "max age")
+                        k = "max-age"; 
+                    morsel.Values[k] = kvp.Value;
+                }
         }
 
         public void set_status(int status_code)
@@ -330,6 +489,11 @@ namespace Tornado.web
             request.write(ByteArrayExtensions.join(headers, chunk), callback);
         }
 
+        public void finish(string body)
+        {
+            finish(UTF32Encoding.UTF8.GetBytes(body));
+        }
+
         public void finish(byte[] chunk=null)
         {
             // Finishes this response, ending the HTTP request.
@@ -390,6 +554,171 @@ namespace Tornado.web
             on_finish();
         }
 
+        public void send_error(int status_code=500, Exception kwargs=null)
+        {
+            /*Sends the given HTTP error code to the browser.
+
+            If `flush()` has already been called, it is not possible to send
+            an error, so this method will simply terminate the response.
+            If output has been written but not yet flushed, it will be discarded
+            and replaced with the error page.
+
+            Override `write_error()` to customize the error page that is returned.
+            Additional keyword arguments are passed through to `write_error`.
+            */
+            if (_headers_written)
+            {
+                logging.error("Cannot send error response after headers written");
+                if (!_finished)
+                    finish();
+                return;
+            }
+            clear();
+            set_status(status_code);
+            try
+            {
+                write_error(status_code, kwargs);
+            }
+            catch(Exception ex)
+            {
+                logging.error("Uncaught exception in write_error", ex);
+            }
+            if (!_finished)
+                finish();
+        }
+        
+        public void write_error(int status_code, Exception kwargs)
+        {
+            /*Override to implement custom error pages.
+
+            ``write_error`` may call `write`, `render`, `set_header`, etc
+            to produce output as usual.
+
+            If this error was caused by an uncaught exception, an ``exc_info``
+            triple will be available as ``kwargs["exc_info"]``.  Note that this
+            exception may not be the "current" exception for purposes of
+            methods like ``sys.exc_info()`` or ``traceback.format_exc``.
+
+            For historical reasons, if a method ``get_error_html`` exists,
+            it will be used instead of the default ``write_error`` implementation.
+            ``get_error_html`` returned a string instead of producing output
+            normally, and had different semantics for exception handling.
+            Users of ``get_error_html`` are encouraged to convert their code
+            to override ``write_error`` instead.
+            */
+            //todo implement?
+            /*if hasattr(self, 'get_error_html'):
+                if 'exc_info' in kwargs:
+                    exc_info = kwargs.pop('exc_info')
+                    kwargs['exception'] = exc_info[1]
+                    try:
+                        # Put the traceback into sys.exc_info()
+                        raise_exc_info(exc_info)
+                    except Exception:
+                        self.finish(self.get_error_html(status_code, **kwargs))
+                else:
+                    self.finish(self.get_error_html(status_code, **kwargs))
+                return
+            if (settings.get("debug") != null) // and "exc_info" in kwargs:
+            {
+                // in debug mode, try to send a traceback
+                set_header("Content-Type", "text/plain");
+                for line in traceback.format_exception(*kwargs["exc_info"])
+                    self.write(line);
+                finish();
+            }
+            else*/
+                finish(string.Format(@"<html><title>{0}: {1}</title>
+                                    <body>{0}: {1}</body></html>",
+                                    status_code,
+                                    httplib.responses[status_code]
+                                  ));
+        }
+
+        public object current_user
+        {
+            get
+            {
+                /*The authenticated user for this request.
+
+                Determined by either get_current_user, which you can override to
+                set the user based on, e.g., a cookie. If that method is not
+                overridden, this method always returns None.
+
+                We lazy-load the current user the first time this method is called
+                and cache the result after that.
+                */
+                if (_current_user == null)
+                    _current_user = get_current_user_();
+                return _current_user;
+            }
+        }
+
+        public virtual object get_current_user_()
+        {
+            //Override to determine the current user from, e.g., a cookie.
+            return null;
+        }
+
+        public string xsrf_token
+        {
+            get
+            {
+                /*The XSRF-prevention token for the current user/session.
+
+                To prevent cross-site request forgery, we set an '_xsrf' cookie
+                and include the same '_xsrf' value as an argument with all POST
+                requests. If the two do not match, we reject the form submission
+                as a potential forgery.
+
+                See http://en.wikipedia.org/wiki/Cross-site_request_forgery
+                */
+                if (_xsrf_token == null)
+                {
+                    var token = get_cookie("_xsrf");
+                    if (token == null)
+                    {
+                        token = Guid.NewGuid().ToString().Replace("-", "");// binascii.b2a_hex(uuid.uuid4().bytes);
+                        int expires_days = (current_user != null) ? 30 : 0;
+                        set_cookie("_xsrf", token, expires_days: expires_days);
+                    }
+                    _xsrf_token = token;
+                }
+                return _xsrf_token;
+            }
+        }
+
+        public void check_xsrf_cookie()
+        {
+            /*Verifies that the '_xsrf' cookie matches the '_xsrf' argument.
+
+            To prevent cross-site request forgery, we set an '_xsrf'
+            cookie and include the same value as a non-cookie
+            field with all POST requests. If the two do not match, we
+            reject the form submission as a potential forgery.
+
+            The _xsrf value may be set as either a form field named _xsrf
+            or in a custom HTTP header named X-XSRFToken or X-CSRFToken
+            (the latter is accepted for compatibility with Django).
+
+            See http://en.wikipedia.org/wiki/Cross-site_request_forgery
+
+            Prior to release 1.1.1, this check was ignored if the HTTP header
+            "X-Requested-With: XMLHTTPRequest" was present.  This exception
+            has been shown to be insecure and has been removed.  For more
+            information please see
+            http://www.djangoproject.com/weblog/2011/feb/08/security/
+            http://weblog.rubyonrails.org/2011/2/8/csrf-protection-bypass-in-ruby-on-rails
+            */
+            var token = (get_argument("_xsrf", null) ??
+                     request.headers.get("X-Xsrftoken") ??
+                     request.headers.get("X-Csrftoken"));
+            if (token == null)
+                throw new HTTPError(403, "'_xsrf' argument missing from POST");
+            if (xsrf_token != token)
+                throw new HTTPError(403, "XSRF cookie does not match POST argument");
+        }
+
         public string compute_etag()
         {
             /*Computes the etag header to be used for this request.
@@ -407,7 +736,7 @@ namespace Tornado.web
             return BitConverter.ToString(hasher.Hash).Replace("-", "").ToLower();
         }
 
-        public void _execute(List<OutputTransform> transforms, List<object> args, Dictionary<string, string> kwargs)
+        public void _execute(List<OutputTransform> transforms, List<string> args, Dictionary<string, string> kwargs)
         {
             //Executes this request with the given output transforms.
             _transforms = transforms;
@@ -419,29 +748,42 @@ namespace Tornado.web
                 // If XSRF cookies are turned on, reject form submissions without
                 // the proper cookie
                 // todo cookies 
-                /*if (request.method != "GET" && request.method != "HEAD" && request.method != "OPTIONS" && 
+                if (request.method != "GET" && request.method != "HEAD" && request.method != "OPTIONS" && 
                     application.settings.get("xsrf_cookies") != null)
-                    check_xsrf_cookie();*/
+                    check_xsrf_cookie();
                 prepare();
                 if (!_finished)
                 {
-                    // todo implement
+                    // todo implement args
                     /*var args = [self.decode_argument(arg) for arg in args]
                     var kwargs = dict((k, self.decode_argument(v, name=k))
                                   for (k, v) in kwargs.iteritems())
                     getattr(self, self.request.method.lower())(*args, **kwargs)*/
-
-                    // todo delete
-                    if(request.method.ToLower() == "get")
+                   
+                    //todo wouldnt the reflection above be really slow here?
+                    var req = request.method.ToLower();
+                    if (req == "head")
+                        head();
+                    else if (req == "get")
                         get();
+                    else if (req == "post")
+                        post();
+                    else if (req == "delete")
+                        delete();
+                    else if (req == "patch")
+                        patch();
+                    else if (req == "put")
+                        put();
+                    else if (req == "options")
+                        options();
 
                     if (_auto_finish && !_finished)
                         finish();
                 }
             }
-            catch(Exception ex)
+            catch(Exception e)
             {
-                //todo implement _handle_request_exception(e);
+                _handle_request_exception(e);
             }
         }
 
@@ -456,12 +798,47 @@ namespace Tornado.web
             foreach(var nv in _list_headers)
                 lines.Add(nv.Item1 + ": " + nv.Item2);
 
-            //todo cookies
-            /*if hasattr(self, "_new_cookie"):
-                for cookie in self._new_cookie.values():
-                    lines.append(utf8("Set-Cookie: " + cookie.OutputString(None)))*/
+            if (_new_cookie != null)
+                foreach (var cookie in _new_cookie.Values)
+                    lines.Add("Set-Cookie: " + cookie.ToString()); //todo is this the same as + cookie.OutputString(None)?
 
             return UTF8Encoding.UTF8.GetBytes(String.Join("\r\n", lines) + "\r\n\r\n");
+        }
+
+        public string _request_summary()
+        {
+            return request.method + " " + request.uri +
+                " (" + request.remote_ip + ")";
+        }
+
+        public void _handle_request_exception(Exception e)
+        {
+            if (e is HTTPError)
+            {
+                var e_ = e as HTTPError;
+                if (e_.log_message != null)
+                {
+                    /*format = "%d %s: " + e.log_message
+                    args = [e.status_code, self._request_summary()] + list(e.args)
+                    logging.warning(format, *args)*/
+                    var prefix = string.Format("{0} {1}: ", e_.status_code, _request_summary());
+                    var suffix = string.Format(e_.log_message, e_.args);
+                    logging.warning(prefix + suffix);
+                }
+                if (!httplib.responses.ContainsKey(e_.status_code))
+                {
+                    logging.error("Bad HTTP status code: " + e_.status_code);
+                    send_error(500, e_);
+                }
+                else
+                    send_error(e_.status_code, e_);
+            }
+            else
+            {
+                logging.error(string.Format("Uncaught exception {0}\n{1}", _request_summary(),
+                              request), e);
+                send_error(500, e);
+            }
         }
 
         private void _clear_headers_for_304()
@@ -535,11 +912,14 @@ namespace Tornado.web
             if (handlers_ != null)
                 add_handlers(".*$", handlers_);
 
-            //todo implement
+      
             // Automatically reload modified modules
-            /*if self.settings.get("debug") and not wsgi:
-                from tornado import autoreload
-                autoreload.start()*/
+            if (settings.get("debug") != null && !wsgi)
+            {
+                //todo implement
+                //from tornado import autoreload
+                //autoreload.start()
+            }
         }
 
         public void Listen(int port, string address="")
@@ -611,7 +991,7 @@ namespace Tornado.web
                 if (spec_.name != null)
                 {
                     if (named_handlers.ContainsKey(spec_.name))
-                        ;//todo logging.warning("Multiple handlers named %s; replacing previous value", spec_.name);
+                        logging.warning(string.Format("Multiple handlers named {0}; replacing previous value", spec_.name));
                     named_handlers[spec_.name] = spec_;
                 }
             }
@@ -645,7 +1025,7 @@ namespace Tornado.web
             // Called by HTTPServer to execute the request.
             var transforms_ = transforms.Select(t => t(request)).ToList();
             RequestHandler handler = null;
-            var args = new List<object>();
+            var args = new List<string>();
             var kwargs = new Dictionary<string, string>();
             var handlers_ = _get_host_handlers(request);
             if (handlers == null || !handlers.Any())
@@ -659,6 +1039,7 @@ namespace Tornado.web
                     if (match)
                     {
                         handler = spec.handler_class(this, request, spec.kwargs);
+                        // todo implement args
                         /*if spec.regex.groups:
                             // None-safe wrapper around url_unescape to handle
                             // unmatched optional groups correctly
